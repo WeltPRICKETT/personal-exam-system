@@ -38,7 +38,7 @@ if not exist "node_modules" (
 )
 
 echo [2/3] Building production files...
-call npm.cmd run build
+node node_modules\vite\bin\vite.js build
 if errorlevel 1 (
   echo [ERROR] Build failed.
   pause

@@ -188,7 +188,9 @@ function normalizeBank(bank) {
   return {
     ...bank,
     id: bank.id || `bank-${Date.now()}`,
-    questions: bank.questions || []
+    exam_title: bank.exam_title || "未命名题库",
+    description: bank.description || "",
+    questions: Array.isArray(bank.questions) ? bank.questions.filter(Boolean) : []
   };
 }
 
@@ -231,6 +233,10 @@ function sameAnswer(question, answer) {
 
 function questionKey(question) {
   return `${question.__bankId || "bank"}:${question.id}`;
+}
+
+function questionTags(question) {
+  return Array.isArray(question?.knowledge_tags) ? question.knowledge_tags : [];
 }
 
 function answerText(question, answer) {
@@ -348,7 +354,7 @@ export default function App() {
   const selectedQuestionPool = useMemo(
     () =>
       selectedExamBanks.flatMap((bank) =>
-        bank.questions.map((question) => ({
+        (Array.isArray(bank.questions) ? bank.questions : []).filter(Boolean).map((question) => ({
           ...question,
           __bankId: bank.id,
           __bankTitle: bank.exam_title
@@ -356,13 +362,13 @@ export default function App() {
       ),
     [selectedExamBanks]
   );
-  const allTags = useMemo(() => [...new Set(selectedQuestionPool.flatMap((q) => q.knowledge_tags))], [selectedQuestionPool]);
+  const allTags = useMemo(() => [...new Set(selectedQuestionPool.flatMap(questionTags))], [selectedQuestionPool]);
 
   const bankStats = useMemo(() => {
     const type = countBy(activeBank.questions, (q) => typeText[q.type]);
     const diff = countBy(activeBank.questions, (q) => diffText[q.difficulty]);
     const tags = activeBank.questions.reduce((acc, q) => {
-      q.knowledge_tags.forEach((tag) => (acc[tag] = (acc[tag] || 0) + 1));
+      questionTags(q).forEach((tag) => (acc[tag] = (acc[tag] || 0) + 1));
       return acc;
     }, {});
     return { type, diff, tags };
@@ -531,7 +537,7 @@ export default function App() {
 
   function filteredQuestions() {
     let questions = selectedQuestionPool;
-    if (config.tags.length) questions = questions.filter((q) => q.knowledge_tags.some((tag) => config.tags.includes(tag)));
+    if (config.tags.length) questions = questions.filter((q) => questionTags(q).some((tag) => config.tags.includes(tag)));
     if (config.difficulties.length) questions = questions.filter((q) => config.difficulties.includes(q.difficulty));
     if (config.wrongOnly) {
       const selectedBankIdSet = new Set(selectedExamBanks.map((bank) => bank.id));
@@ -642,7 +648,7 @@ export default function App() {
     const stats = {};
     sourceRecords.forEach((record) => {
       record.details.forEach(({ question, correct }) => {
-        question.knowledge_tags.forEach((tag) => {
+        questionTags(question).forEach((tag) => {
           if (!stats[tag]) stats[tag] = { total: 0, correct: 0, history: [] };
           stats[tag].total += 1;
           stats[tag].correct += correct ? 1 : 0;
@@ -962,7 +968,7 @@ export default function App() {
                     {item.mastered && <span className="ml-2 text-sm text-emerald-600">已掌握</span>}
                   </summary>
                   <div className="mt-3 space-y-2 text-sm text-slate-700">
-                    <p>知识点：{item.question.knowledge_tags.join("、")}</p>
+                    <p>知识点：{questionTags(item.question).join("、") || "未标注"}</p>
                     <p>上次错误：{item.lastWrongAt ? new Date(item.lastWrongAt).toLocaleString() : "-"}</p>
                     <p>你的答案：{answerText(item.question, item.lastAnswer)}</p>
                     <p>正确答案：{answerText(item.question, item.question.correct_answer)}</p>
@@ -1092,7 +1098,7 @@ function Review({ record, summary }) {
   const tagStats = {};
   const diffStats = {};
   record.details.forEach(({ question, correct }) => {
-    question.knowledge_tags.forEach((tag) => {
+    questionTags(question).forEach((tag) => {
       if (!tagStats[tag]) tagStats[tag] = { total: 0, correct: 0 };
       tagStats[tag].total += 1;
       tagStats[tag].correct += correct ? 1 : 0;
@@ -1129,7 +1135,7 @@ function Review({ record, summary }) {
               <div className="mt-3 space-y-2 text-sm leading-7">
                 <p>你的答案：{answerText(question, answer)}</p>
                 <p>正确答案：{answerText(question, question.correct_answer)}</p>
-                <p>知识点：{question.knowledge_tags.join("、")}</p>
+                <p>知识点：{questionTags(question).join("、") || "未标注"}</p>
                 <p>解析：{question.explanation}</p>
               </div>
             </details>

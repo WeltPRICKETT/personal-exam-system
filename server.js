@@ -66,10 +66,17 @@ app.put("/api/state", (req, res) => {
   res.json(writeState(req.body || {}));
 });
 
-app.use(express.static(distDir));
+function sendAppHtml(res) {
+  const html = readFileSync(join(distDir, "index.html"), "utf8")
+    .replace(/\s+type="module"/g, "")
+    .replace(/\s+crossorigin/g, "");
+  res.type("html").send(html);
+}
+
+app.use(express.static(distDir, { index: false }));
 
 app.get(/.*/, (_req, res) => {
-  res.sendFile(join(distDir, "index.html"));
+  sendAppHtml(res);
 });
 
 app.listen(port, "127.0.0.1", () => {
