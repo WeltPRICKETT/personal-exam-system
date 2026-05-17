@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+*.log
+*.zip
+
+.env
+.DS_Store
+Thumbs.db
+
+2120note/
+econ2120/
