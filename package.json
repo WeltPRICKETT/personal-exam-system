@@ -4,17 +4,17 @@
   "description": "A local personal mock exam system with question bank import, auto grading, review, wrong-question tracking, and persistent backend storage.",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1",
+    "dev": "node node_modules/vite/bin/vite.js --host 127.0.0.1",
+    "build": "node node_modules/vite/bin/vite.js build",
+    "preview": "node node_modules/vite/bin/vite.js preview --host 127.0.0.1",
     "start": "node server.js"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
+    "@vitejs/plugin-react": "^5.1.1",
+    "express": "^5.2.1",
     "react": "latest",
     "react-dom": "latest",
-    "vite": "latest",
-    "express": "^5.2.1"
+    "vite": "^7.2.4"
   },
   "devDependencies": {
     "autoprefixer": "^10.5.0",

@@ -229,6 +229,10 @@ function sameAnswer(question, answer) {
   return answer === question.correct_answer;
 }
 
+function questionKey(question) {
+  return `${question.__bankId || "bank"}:${question.id}`;
+}
+
 function answerText(question, answer) {
   if (answer === undefined || answer === null || answer === "" || (Array.isArray(answer) && !answer.length)) return "未作答";
   if (question.type === "true_false") return answer ? "正确" : "错误";
@@ -318,6 +322,7 @@ function Button({ children, tone = "primary", className = "", ...props }) {
 export default function App() {
   const [banks, setBanks] = useState([sampleBank]);
   const [activeBankId, setActiveBankId] = useState(sampleBank.id);
+  const [selectedExamBankIds, setSelectedExamBankIds] = useState([sampleBank.id]);
   const [tab, setTab] = useState("bank");
   const [jsonText, setJsonText] = useState("");
   const [dataText, setDataText] = useState("");
@@ -336,7 +341,22 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState("正在连接后端数据库...");
 
   const activeBank = banks.find((bank) => bank.id === activeBankId) || banks[0];
-  const allTags = useMemo(() => [...new Set(activeBank.questions.flatMap((q) => q.knowledge_tags))], [activeBank]);
+  const selectedExamBanks = useMemo(() => {
+    const selected = banks.filter((bank) => selectedExamBankIds.includes(bank.id));
+    return selected.length ? selected : [activeBank].filter(Boolean);
+  }, [banks, selectedExamBankIds, activeBank]);
+  const selectedQuestionPool = useMemo(
+    () =>
+      selectedExamBanks.flatMap((bank) =>
+        bank.questions.map((question) => ({
+          ...question,
+          __bankId: bank.id,
+          __bankTitle: bank.exam_title
+        }))
+      ),
+    [selectedExamBanks]
+  );
+  const allTags = useMemo(() => [...new Set(selectedQuestionPool.flatMap((q) => q.knowledge_tags))], [selectedQuestionPool]);
 
   const bankStats = useMemo(() => {
     const type = countBy(activeBank.questions, (q) => typeText[q.type]);
@@ -361,6 +381,7 @@ export default function App() {
           const nextBanks = data.banks.map(normalizeBank);
           setBanks(nextBanks);
           setActiveBankId(data.activeBankId || nextBanks[0].id);
+          setSelectedExamBankIds([data.activeBankId || nextBanks[0].id]);
         }
         if (Array.isArray(data.records)) setRecords(data.records);
         if (data.wrongBook && typeof data.wrongBook === "object") setWrongBook(data.wrongBook);
@@ -425,6 +446,18 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [session]);
 
+  useEffect(() => {
+    if (!banks.length) return;
+    if (!banks.some((bank) => bank.id === activeBankId)) {
+      setActiveBankId(banks[0].id);
+    }
+    const availableIds = new Set(banks.map((bank) => bank.id));
+    setSelectedExamBankIds((items) => {
+      const next = items.filter((id) => availableIds.has(id));
+      return next.length ? next : [banks[0].id];
+    });
+  }, [banks, activeBankId]);
+
   function importBank() {
     try {
       const parsed = normalizeBank(JSON.parse(jsonText));
@@ -435,6 +468,7 @@ export default function App() {
       }
       setBanks((items) => [...items, parsed]);
       setActiveBankId(parsed.id);
+      setSelectedExamBankIds((items) => [...new Set([...items, parsed.id])]);
       setJsonText("");
       setMessage("题库导入成功。");
     } catch (error) {
@@ -455,6 +489,7 @@ export default function App() {
       }
       setBanks(data.banks.map(normalizeBank));
       setActiveBankId(data.activeBankId || data.banks[0].id);
+      setSelectedExamBankIds([data.activeBankId || data.banks[0].id]);
       setRecords(Array.isArray(data.records) ? data.records : []);
       setWrongBook(data.wrongBook || {});
       setDataText("");
@@ -464,13 +499,48 @@ export default function App() {
     }
   }
 
+  function toggleExamBank(bankId) {
+    setSelectedExamBankIds((items) => {
+      if (items.includes(bankId)) {
+        const next = items.filter((id) => id !== bankId);
+        return next.length ? next : items;
+      }
+      return [...items, bankId];
+    });
+  }
+
+  function deleteBank(bankId) {
+    if (banks.length <= 1) {
+      setMessage("至少需要保留一个题库。");
+      return;
+    }
+    const bank = banks.find((item) => item.id === bankId);
+    if (!bank || !window.confirm(`确认删除题库「${bank.exam_title}」吗？相关错题记录也会移除，历史考试记录会保留。`)) return;
+    const nextBanks = banks.filter((item) => item.id !== bankId);
+    setBanks(nextBanks);
+    if (activeBankId === bankId) setActiveBankId(nextBanks[0].id);
+    setSelectedExamBankIds((items) => {
+      const next = items.filter((id) => id !== bankId);
+      return next.length ? next : [nextBanks[0].id];
+    });
+    setWrongBook((items) =>
+      Object.fromEntries(Object.entries(items).filter(([, item]) => item.bankId !== bankId))
+    );
+    setMessage("题库已删除。");
+  }
+
   function filteredQuestions() {
-    let questions = activeBank.questions;
+    let questions = selectedQuestionPool;
     if (config.tags.length) questions = questions.filter((q) => q.knowledge_tags.some((tag) => config.tags.includes(tag)));
     if (config.difficulties.length) questions = questions.filter((q) => config.difficulties.includes(q.difficulty));
     if (config.wrongOnly) {
-      const wrongIds = new Set(Object.values(wrongBook).filter((item) => item.bankId === activeBank.id && !item.mastered).map((item) => item.questionId));
-      questions = questions.filter((q) => wrongIds.has(q.id));
+      const selectedBankIdSet = new Set(selectedExamBanks.map((bank) => bank.id));
+      const wrongIds = new Set(
+        Object.values(wrongBook)
+          .filter((item) => selectedBankIdSet.has(item.bankId) && !item.mastered)
+          .map((item) => `${item.bankId}:${item.questionId}`)
+      );
+      questions = questions.filter((q) => wrongIds.has(`${q.__bankId}:${q.id}`));
     }
     if (config.shuffle) questions = shuffleItems(questions);
     if (config.mode === "random") questions = questions.slice(0, Math.max(1, Number(config.count) || 1));
@@ -484,9 +554,19 @@ export default function App() {
       return;
     }
     let minutes = null;
-    if (config.timerMode === "bank") minutes = activeBank.time_limit_minutes;
+    if (config.timerMode === "bank") minutes = Math.max(...selectedExamBanks.map((bank) => Number(bank.time_limit_minutes) || 0));
     if (config.timerMode === "custom") minutes = Number(config.customMinutes) || 0;
-    setSession({ id: `record-${Date.now()}`, bankId: activeBank.id, bankTitle: activeBank.exam_title, questions, startedAt: Date.now() });
+    const bankTitle = selectedExamBanks.length === 1 ? selectedExamBanks[0].exam_title : `${selectedExamBanks.length} 个题库联合考试`;
+    const passScorePercent = Math.round(selectedExamBanks.reduce((sum, bank) => sum + (Number(bank.pass_score_percent) || 60), 0) / selectedExamBanks.length);
+    setSession({
+      id: `record-${Date.now()}`,
+      bankId: selectedExamBanks.map((bank) => bank.id).join(","),
+      bankIds: selectedExamBanks.map((bank) => bank.id),
+      bankTitle,
+      passScorePercent,
+      questions,
+      startedAt: Date.now()
+    });
     setAnswers({});
     setMarked([]);
     setCurrent(0);
@@ -498,12 +578,13 @@ export default function App() {
 
   function updateAnswer(question, value) {
     setAnswers((prev) => {
+      const key = questionKey(question);
       if (question.type === "multiple_choice") {
-        const currentAnswer = Array.isArray(prev[question.id]) ? prev[question.id] : [];
+        const currentAnswer = Array.isArray(prev[key]) ? prev[key] : [];
         const next = currentAnswer.includes(value) ? currentAnswer.filter((item) => item !== value) : [...currentAnswer, value];
-        return { ...prev, [question.id]: next };
+        return { ...prev, [key]: next };
       }
-      return { ...prev, [question.id]: prev[question.id] === value ? undefined : value };
+      return { ...prev, [key]: prev[key] === value ? undefined : value };
     });
   }
 
@@ -513,14 +594,16 @@ export default function App() {
     const finishedAt = Date.now();
     const details = session.questions.map((question) => ({
       question,
-      answer: answers[question.id],
-      correct: sameAnswer(question, answers[question.id])
+      answer: answers[questionKey(question)],
+      correct: sameAnswer(question, answers[questionKey(question)])
     }));
     const correctCount = details.filter((item) => item.correct).length;
     const record = {
       id: session.id,
       bankId: session.bankId,
+      bankIds: session.bankIds || [session.bankId],
       bankTitle: session.bankTitle,
+      passScorePercent: session.passScorePercent || activeBank.pass_score_percent || 60,
       createdAt: new Date().toISOString(),
       durationSeconds: Math.round((finishedAt - session.startedAt) / 1000),
       scorePercent: Math.round((correctCount / details.length) * 100),
@@ -530,11 +613,13 @@ export default function App() {
     };
     const nextWrongBook = { ...wrongBook };
     details.forEach((item) => {
-      const key = `${session.bankId}:${item.question.id}`;
+      const itemBankId = item.question.__bankId || session.bankId;
+      const key = `${itemBankId}:${item.question.id}`;
       if (!item.correct) {
-        const old = nextWrongBook[key] || { bankId: session.bankId, questionId: item.question.id, count: 0, answers: [] };
+        const old = nextWrongBook[key] || { bankId: itemBankId, questionId: item.question.id, count: 0, answers: [] };
         nextWrongBook[key] = {
           ...old,
+          bankId: itemBankId,
           question: item.question,
           count: old.count + 1,
           lastWrongAt: record.createdAt,
@@ -569,7 +654,7 @@ export default function App() {
   }
 
   function recordSummary(record) {
-    const pass = record.scorePercent >= (activeBank.pass_score_percent || 60);
+    const pass = record.scorePercent >= (record.passScorePercent || activeBank.pass_score_percent || 60);
     return (
       <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded border border-slate-200 p-4">
@@ -628,11 +713,14 @@ export default function App() {
             <Panel
               title="题库概览"
               extra={
-                <select className="rounded border border-slate-300 px-3 py-2 text-sm" value={activeBankId} onChange={(e) => setActiveBankId(e.target.value)}>
-                  {banks.map((bank) => (
-                    <option key={bank.id} value={bank.id}>{bank.exam_title}</option>
-                  ))}
-                </select>
+                <div className="flex flex-wrap gap-2">
+                  <select className="rounded border border-slate-300 px-3 py-2 text-sm" value={activeBankId} onChange={(e) => setActiveBankId(e.target.value)}>
+                    {banks.map((bank) => (
+                      <option key={bank.id} value={bank.id}>{bank.exam_title}</option>
+                    ))}
+                  </select>
+                  <Button tone="danger" onClick={() => deleteBank(activeBank.id)} disabled={banks.length <= 1}>删除题库</Button>
+                </div>
               }
             >
               <div className="mb-5">
@@ -706,6 +794,36 @@ export default function App() {
           <div className="space-y-5">
             {!session && !reviewRecord && (
               <Panel title="考试配置">
+                <div className="mb-5 rounded border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">选择参与考试的题库</div>
+                      <div className="text-sm text-slate-500">
+                        已选择 {selectedExamBanks.length} 个题库，共 {selectedQuestionPool.length} 道题；随机抽题会从这些题库合并后的题目池中抽取。
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button tone="secondary" onClick={() => setSelectedExamBankIds(banks.map((bank) => bank.id))}>全选</Button>
+                      <Button tone="secondary" onClick={() => setSelectedExamBankIds([activeBank.id])}>仅当前题库</Button>
+                    </div>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {banks.map((bank) => (
+                      <label key={bank.id} className={`flex items-start gap-3 rounded border p-3 text-sm transition ${selectedExamBankIds.includes(bank.id) ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white"}`}>
+                        <input
+                          className="mt-1"
+                          type="checkbox"
+                          checked={selectedExamBankIds.includes(bank.id)}
+                          onChange={() => toggleExamBank(bank.id)}
+                        />
+                        <span>
+                          <span className="block font-medium text-slate-900">{bank.exam_title}</span>
+                          <span className="block text-slate-500">{bank.questions.length} 道题 · {bank.time_limit_minutes || "不限"} 分钟</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <div className="grid gap-5 md:grid-cols-2">
                   <label className="space-y-2">
                     <span className="text-sm font-medium">出题方式</span>
@@ -787,11 +905,12 @@ export default function App() {
                   </div>
                   <div className="grid grid-cols-5 gap-2 md:grid-cols-4">
                     {session.questions.map((q, index) => {
-                      const answered = answers[q.id] !== undefined && !(Array.isArray(answers[q.id]) && !answers[q.id].length);
-                      const isMarked = marked.includes(q.id);
+                      const key = questionKey(q);
+                      const answered = answers[key] !== undefined && !(Array.isArray(answers[key]) && !answers[key].length);
+                      const isMarked = marked.includes(key);
                       return (
                         <button
-                          key={q.id}
+                          key={key}
                           onClick={() => setCurrent(index)}
                           className={`h-9 rounded border text-sm ${index === current ? "border-blue-700 bg-blue-700 text-white" : answered ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-white text-slate-600"} ${isMarked ? "ring-2 ring-orange-300" : ""}`}
                         >
@@ -805,12 +924,12 @@ export default function App() {
                   question={session.questions[current]}
                   index={current}
                   total={session.questions.length}
-                  answer={answers[session.questions[current].id]}
-                  marked={marked.includes(session.questions[current].id)}
+                  answer={answers[questionKey(session.questions[current])]}
+                  marked={marked.includes(questionKey(session.questions[current]))}
                   onAnswer={updateAnswer}
                   onMark={() => {
-                    const id = session.questions[current].id;
-                    setMarked((items) => (items.includes(id) ? items.filter((item) => item !== id) : [...items, id]));
+                    const key = questionKey(session.questions[current]);
+                    setMarked((items) => (items.includes(key) ? items.filter((item) => item !== key) : [...items, key]));
                   }}
                   onPrev={() => setCurrent(Math.max(0, current - 1))}
                   onNext={() => setCurrent(Math.min(session.questions.length - 1, current + 1))}
