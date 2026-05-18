@@ -68,8 +68,12 @@ app.put("/api/state", (req, res) => {
 
 function sendAppHtml(res) {
   const html = readFileSync(join(distDir, "index.html"), "utf8")
-    .replace(/\s+type="module"/g, "")
-    .replace(/\s+crossorigin/g, "");
+    .replace(/\s+type="module"/g, " defer")
+    .replace(/\s+crossorigin/g, "")
+    .replace(
+      '<div id="root"></div>',
+      '<div id="root"><div style="padding: 32px; font-family: -apple-system, BlinkMacSystemFont, Microsoft YaHei, sans-serif; color: #334155;">正在加载个人模拟考试系统...</div></div>'
+    );
   res.type("html").send(html);
 }
 
