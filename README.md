@@ -26,6 +26,28 @@
 
 ## 快速开始
 
+### macOS 一键运行
+
+双击：
+
+```text
+run-exam-system.command
+```
+
+如果 macOS 提示文件不能打开，请在项目目录执行一次：
+
+```bash
+chmod +x run-exam-system.command
+```
+
+脚本会自动安装依赖、构建前端、启动后端，并打开：
+
+```text
+http://127.0.0.1:4173/
+```
+
+使用期间请保持 Terminal 窗口打开，按 `Ctrl+C` 可停止服务。
+
 ### Windows 一键运行
 
 双击：

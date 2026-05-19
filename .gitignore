@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/
+.npm-cache/
 *.log
 *.zip
 
